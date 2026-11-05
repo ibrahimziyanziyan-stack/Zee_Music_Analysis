@@ -1,0 +1,175 @@
+ZEE MUSIC — Power BI model setup and DAX solutions
+
+MODEL SETUP
+Create one-to-many, single-direction relationships:
+Artist[ArtistKey] 1 -> * Music_Streams[ArtistKey]
+Album[AlbumKey] 1 -> * Music_Streams[AlbumKey]
+Date[DateKey] 1 -> * Music_Streams[DateKey]
+Mark Date as the date table using Date[Date]. Make Date[Date] a Date type and key columns matching whole-number types. Create each measure below separately via Modeling > New measure. Run each EVALUATE query in DAX Query View.
+
+BASE MEASURES (create separately)
+
+[Total Streams] = SUM('Music_Streams'[StreamCount])
+[Total Revenue] = SUM('Music_Streams'[RevenueUSD])
+[Streaming Records] = COUNTROWS('Music_Streams')
+[Average Revenue per Record] = DIVIDE([Total Revenue], [Streaming Records])
+[Average Listening Minutes] = AVERAGE('Music_Streams'[MinutesListened])
+[Total Skips] = SUM('Music_Streams'[SkipCount])
+[Unique Listeners] = DISTINCTCOUNT('Music_Streams'[ListenerID])
+[Revenue per Stream] = DIVIDE([Total Revenue], [Total Streams])
+[Completed Records] = CALCULATE([Streaming Records], 'Music_Streams'[IsCompleted] = "Yes")
+[Not Completed Records] = CALCULATE([Streaming Records], 'Music_Streams'[IsCompleted] = "No")
+[Revenue Previous Year] = CALCULATE([Total Revenue], DATEADD('Date'[Date], -1, YEAR))
+[Revenue YoY Change] = [Total Revenue] - [Revenue Previous Year]
+[Revenue YoY Growth %] = DIVIDE([Revenue YoY Change], [Revenue Previous Year])
+
+DASHBOARD REQUIREMENTS — DAX QUERIES
+
+1. Artist with highest number of streams
+EVALUATE
+VAR ArtistStats = ADDCOLUMNS(VALUES('Artist'[ArtistName]), "Total Streams", [Total Streams])
+RETURN TOPN(1, ArtistStats, [Total Streams], DESC, 'Artist'[ArtistName], ASC)
+
+2. Top 10 artists by total revenue
+EVALUATE
+VAR ArtistStats = ADDCOLUMNS(VALUES('Artist'[ArtistName]), "Total Revenue", [Total Revenue])
+RETURN TOPN(10, ArtistStats, [Total Revenue], DESC, 'Artist'[ArtistName], ASC)
+
+3. Revenue by genre
+EVALUATE
+SUMMARIZECOLUMNS('Artist'[PrimaryGenre], "Total Revenue", [Total Revenue])
+ORDER BY [Total Revenue] DESC
+
+4. Album listening activity (streams and minutes)
+EVALUATE
+VAR AlbumStats = ADDCOLUMNS(SUMMARIZE('Album', 'Album'[AlbumKey], 'Album'[AlbumName]), "Total Streams", [Total Streams], "Listening Minutes", CALCULATE(SUM('Music_Streams'[MinutesListened])))
+RETURN TOPN(10, AlbumStats, [Total Streams], DESC, 'Album'[AlbumName], ASC)
+
+5. Monthly stream trends
+EVALUATE
+SUMMARIZECOLUMNS('Date'[Year], 'Date'[MonthNumber], 'Date'[YearMonth], "Total Streams", [Total Streams], "Total Revenue", [Total Revenue])
+ORDER BY 'Date'[Year] ASC, 'Date'[MonthNumber] ASC
+
+6. Revenue comparison for 2024 and 2025
+EVALUATE
+SUMMARIZECOLUMNS('Date'[Year], FILTER(ALL('Date'[Year]), 'Date'[Year] IN {2024, 2025}), "Total Revenue", [Total Revenue])
+ORDER BY 'Date'[Year] ASC
+
+7. Revenue and average revenue by subscription type
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[SubscriptionType], "Total Revenue", [Total Revenue], "Average Revenue per Record", [Average Revenue per Record], "Streaming Records", [Streaming Records])
+ORDER BY [Total Revenue] DESC
+
+8. Streaming activity by device
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[Device], "Total Streams", [Total Streams], "Streaming Records", [Streaming Records], "Listening Minutes", CALCULATE(SUM('Music_Streams'[MinutesListened])))
+ORDER BY [Total Streams] DESC
+
+9. Listening behaviour by country
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[ListenerCountry], "Total Streams", [Total Streams], "Unique Listeners", [Unique Listeners], "Listening Minutes", CALCULATE(SUM('Music_Streams'[MinutesListened])), "Total Revenue", [Total Revenue])
+ORDER BY [Total Streams] DESC
+
+10. Streams by playlist source
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[PlaylistSource], "Total Streams", [Total Streams], "Streaming Records", [Streaming Records])
+ORDER BY [Total Streams] DESC
+
+11. Completed versus not-completed records
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[IsCompleted], "Streaming Records", [Streaming Records], "Total Streams", [Total Streams], "Total Revenue", [Total Revenue])
+ORDER BY 'Music_Streams'[IsCompleted] ASC
+
+12. Skip behaviour by rating
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[Rating], "Average Skip Count", AVERAGE('Music_Streams'[SkipCount]), "Total Skips", [Total Skips], "Streaming Records", [Streaming Records])
+ORDER BY 'Music_Streams'[Rating] ASC
+
+13. Yearly revenue and year-over-year growth
+EVALUATE
+SUMMARIZECOLUMNS('Date'[Year], "Total Revenue", [Total Revenue], "Previous Year Revenue", [Revenue Previous Year], "YoY Revenue Change", [Revenue YoY Change], "YoY Revenue Growth %", [Revenue YoY Growth %])
+ORDER BY 'Date'[Year] ASC
+
+14. High-stream, low-revenue-per-stream artists (top quartile of streams, below overall revenue-per-stream benchmark)
+EVALUATE
+VAR ArtistStats = ADDCOLUMNS(VALUES('Artist'[ArtistName]), "Total Streams", [Total Streams], "Total Revenue", [Total Revenue], "Revenue per Stream", [Revenue per Stream])
+VAR StreamThreshold = PERCENTILEX.INC(ArtistStats, [Total Streams], 0.75)
+VAR OverallRevenuePerStream = [Revenue per Stream]
+RETURN FILTER(ArtistStats, [Total Streams] >= StreamThreshold && [Revenue per Stream] < OverallRevenuePerStream)
+ORDER BY [Total Streams] DESC
+
+DAX QUERY REQUIREMENTS — 15 QUERIES
+
+1. Ten artists with fewest social media followers
+EVALUATE
+TOPN(10, SELECTCOLUMNS('Artist', "Artist", 'Artist'[ArtistName], "Social Followers", 'Artist'[SocialFollowers]), [Social Followers], ASC, [Artist], ASC)
+
+2. Five oldest albums by release date
+EVALUATE
+TOPN(5, SELECTCOLUMNS('Album', "Album", 'Album'[AlbumName], "Album Key", 'Album'[AlbumKey], "Release Date", 'Album'[ReleaseDate]), [Release Date], ASC, [Album Key], ASC)
+
+3. Streaming record count, average listening minutes, maximum and minimum rating in one row
+EVALUATE
+ROW("Total Streaming Records", [Streaming Records], "Average Listening Minutes", [Average Listening Minutes], "Maximum Rating", CALCULATE(MAX('Music_Streams'[Rating])), "Minimum Rating", CALCULATE(MIN('Music_Streams'[Rating])))
+
+4. Total revenue and average rating by playlist source
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[PlaylistSource], "Total Revenue", [Total Revenue], "Average Rating", AVERAGE('Music_Streams'[Rating]))
+ORDER BY [Total Revenue] DESC
+
+5. Five tracks with highest total StreamCount (artist disambiguates duplicate track names)
+EVALUATE
+VAR TrackStats = ADDCOLUMNS(SUMMARIZE('Music_Streams', 'Artist'[ArtistName], 'Music_Streams'[TrackName]), "Total Streams", [Total Streams])
+RETURN TOPN(5, TrackStats, [Total Streams], DESC, 'Music_Streams'[TrackName], ASC)
+
+6. Unique artists per PrimaryGenre
+EVALUATE
+SUMMARIZECOLUMNS('Artist'[PrimaryGenre], "Unique Artists", DISTINCTCOUNT('Artist'[ArtistKey]))
+ORDER BY 'Artist'[PrimaryGenre] ASC
+
+7. Total revenue by ListenerCountry
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[ListenerCountry], "Total Revenue", [Total Revenue])
+ORDER BY [Total Revenue] DESC
+
+8. Five countries with the most unique listeners
+EVALUATE
+VAR CountryStats = ADDCOLUMNS(VALUES('Music_Streams'[ListenerCountry]), "Unique Listeners", [Unique Listeners])
+RETURN TOPN(5, CountryStats, [Unique Listeners], DESC, 'Music_Streams'[ListenerCountry], ASC)
+
+9. Average SkipCount by PlaylistSource
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[PlaylistSource], "Average Skip Count", AVERAGE('Music_Streams'[SkipCount]))
+ORDER BY [Average Skip Count] DESC
+
+10. Five albums with highest ProductionCostUSD
+EVALUATE
+TOPN(5, SELECTCOLUMNS('Album', "Album", 'Album'[AlbumName], "Album Key", 'Album'[AlbumKey], "Production Cost USD", 'Album'[ProductionCostUSD]), [Production Cost USD], DESC, [Album Key], ASC)
+
+11. Total revenue per year using Date table
+EVALUATE
+SUMMARIZECOLUMNS('Date'[Year], "Total Revenue", [Total Revenue])
+ORDER BY 'Date'[Year] ASC
+
+12. Total skips by Device and PlaylistSource
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[Device], 'Music_Streams'[PlaylistSource], "Total Skips", [Total Skips])
+ORDER BY 'Music_Streams'[Device] ASC, 'Music_Streams'[PlaylistSource] ASC
+
+13. Average SocialFollowers by ArtistType
+EVALUATE
+SUMMARIZECOLUMNS('Artist'[ArtistType], "Average Social Followers", AVERAGE('Artist'[SocialFollowers]))
+ORDER BY [Average Social Followers] DESC
+
+14. Country revenue, record count and average revenue per record
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[ListenerCountry], "Total Revenue", [Total Revenue], "Streaming Records", [Streaming Records], "Average Revenue per Record", [Average Revenue per Record])
+ORDER BY [Total Revenue] DESC
+
+15. Unique listeners and average listening minutes by SubscriptionType and Device
+EVALUATE
+SUMMARIZECOLUMNS('Music_Streams'[SubscriptionType], 'Music_Streams'[Device], "Unique Listeners", [Unique Listeners], "Average Listening Minutes", [Average Listening Minutes])
+ORDER BY 'Music_Streams'[SubscriptionType] ASC, 'Music_Streams'[Device] ASC
+
+NOTES
+Average revenue per record is total revenue divided by the number of fact rows in the current filter context. Revenue per stream is revenue divided by summed StreamCount. The high-stream/low-revenue query defines high streams as the top quartile of artists and low revenue as below the overall revenue-per-stream benchmark. The available data contains 1,800 streaming rows from 2024–2025; the Date table covers both calendar years.
